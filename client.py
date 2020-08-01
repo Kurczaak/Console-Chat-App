@@ -15,6 +15,10 @@ client_socket.connect((IP, PORT))
 client_socket.setblocking(False)
 
 while True:
+    my_message = input(">")
+    header = f'{len(my_message):<{HEADER_SIZE}}'
+    my_full_message = header + my_message
+    client_socket.send(my_full_message.encode("UTF-8"))
     try:
         message_len = int(client_socket.recv(HEADER_SIZE).decode("UTF-8"))
         if not message_len:
@@ -24,7 +28,7 @@ while True:
             message = client_socket.recv(PACKET_SIZE).decode("UTF-8")
             full_message += message
         print(full_message)
-    except BlockingIOError as e:
+    except IOError as e:
         continue
 
 
