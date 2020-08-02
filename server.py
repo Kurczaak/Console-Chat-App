@@ -2,7 +2,12 @@ import socket
 import select
 
 
-def send_welcome_message(socket, message, header_size):
+IP = "127.0.0.1"
+PORT = 1234
+HEADER_SIZE = 10
+
+
+def send_message(socket, message, header_size):
     header = f'{len(message):<{header_size}}'
     full_message = header + message
     socket.send(full_message.encode("UTF-8"))
@@ -10,32 +15,16 @@ def send_welcome_message(socket, message, header_size):
 
 def receive_message(socket, header_size):
     try:
-
-        # Receive our "header" containing message length, it's size is defined and constant
-        message_header = socket.recv(header_size)
-
-        # If we received no data, client gracefully closed a connection, for example using socket.close() or socket.shutdown(socket.SHUT_RDWR)
-        if not len(message_header):
+        header = socket.recv(header_size).decode("UTF-8")  # receive just the header of a new message
+        msg_len = int(header)
+        if not msg_len:  # if the header is empty return False
             return False
-
-        # Convert header to int value
-        message_length = int(message_header.decode('utf-8').strip())
-
-        # Return an object of message header and message data
-        return socket.recv(1024)
-
+        else:  # receive a new message of the length specified in header
+            return socket.recv(msg_len).decode("UTF-8")
+    # if the connection has been close abruptly return False
     except:
-
-        # If we are here, client closed connection violently, for example by pressing ctrl+c on his script
-        # or just lost his connection
-        # socket.close() also invokes socket.shutdown(socket.SHUT_RDWR) what sends information about closing the socket (shutdown read/write)
-        # and that's also a cause when we receive an empty message
         return False
 
-
-IP = "127.0.0.1"
-PORT = 1234
-HEADER_SIZE = 10
 # create a new server socket
 # AF_INET - IPv4 protocol, SOCK_STREAM - TCP connection
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -51,25 +40,50 @@ server_socket.bind((IP, PORT))
 # start listening to incoming connections
 server_socket.listen()
 
-sockets_list = [server_socket]
-clients = []
+sockets_list = [server_socket]  # list of all sockets to check if notified
+clients = {}  # list of all the currently connected clients
 
+# infinite loop waiting for incoming connections and messages
 while True:
-    read_sockets, _, error_sockets = select.select(sockets_list, [], sockets_list, 0.1)
+    # select.select is a blocking call, supervising sockets given in a list if any is notified
+    read_sockets, _, error_sockets = select.select(sockets_list, [], sockets_list)
 
+    # if data is to be received (new connections or messages)
+    # iterate through sockets containing new data and handle it appropriately
     for notified_socket in read_sockets:
-        # send a new message
+
+        # server socket is notified - receive a new connection
         if notified_socket == server_socket:
+
             client_socket, address = server_socket.accept()
+            # the very first message is the username
+            username = receive_message(client_socket, HEADER_SIZE)
+            if username is False:
+                continue
+
+            # add new socket to the list and a new user to the dictionary
             sockets_list.append(client_socket)
+            clients[client_socket] = username
+
             print(f"New connection from {address}")
-            #send_welcome_message(client_socket, "Welcome to the server", HEADER_SIZE)
+            send_message(client_socket, f"Welcome to the server {username}!", HEADER_SIZE)
+
+        # notified socket is a client socket - new message to receive and propagate
         else:
             msg = receive_message(notified_socket, HEADER_SIZE)
             if msg is False:
-                print("Closed connection")
-                sockets_list.remove(client_socket)
+                if notified_socket in clients:
+                    print(f"Closed connection from {clients[notified_socket]}")
+                    sockets_list.remove(client_socket)
+                    del clients[notified_socket]
                 continue
-            print(msg.decode("UTF-8"))
-        for notified_socket in error_sockets:
-            sockets_list.remove(notified_socket)
+            print(f"{clients[notified_socket]}: {msg}")
+
+            # send the message to all the sockets but not to the sender
+            for client in clients:
+                if client != notified_socket :
+                    send_message(client, msg, HEADER_SIZE)
+
+        for socket in error_sockets:
+            sockets_list.remove(socket)
+            del clients[socket]
