@@ -10,11 +10,26 @@ def send_welcome_message(socket, message, header_size):
 
 def receive_message(socket, header_size):
     try:
-        msg_len = int(socket.recv(HEADER_SIZE))
-        msg = client_socket.recv(msg_len)
-        if len(msg) == msg_len:
-            return msg
+
+        # Receive our "header" containing message length, it's size is defined and constant
+        message_header = socket.recv(header_size)
+
+        # If we received no data, client gracefully closed a connection, for example using socket.close() or socket.shutdown(socket.SHUT_RDWR)
+        if not len(message_header):
+            return False
+
+        # Convert header to int value
+        message_length = int(message_header.decode('utf-8').strip())
+
+        # Return an object of message header and message data
+        return socket.recv(1024)
+
     except:
+
+        # If we are here, client closed connection violently, for example by pressing ctrl+c on his script
+        # or just lost his connection
+        # socket.close() also invokes socket.shutdown(socket.SHUT_RDWR) what sends information about closing the socket (shutdown read/write)
+        # and that's also a cause when we receive an empty message
         return False
 
 
@@ -36,25 +51,25 @@ server_socket.bind((IP, PORT))
 # start listening to incoming connections
 server_socket.listen()
 
-sockets = [server_socket]
+sockets_list = [server_socket]
 clients = []
 
 while True:
-    read_sockets, _, error_sockets = select.select(sockets, [], sockets)
+    read_sockets, _, error_sockets = select.select(sockets_list, [], sockets_list, 0.1)
+
     for notified_socket in read_sockets:
         # send a new message
         if notified_socket == server_socket:
             client_socket, address = server_socket.accept()
-            sockets.append(client_socket)
+            sockets_list.append(client_socket)
             print(f"New connection from {address}")
-            send_welcome_message(client_socket, "Welcome to the server", HEADER_SIZE)
+            #send_welcome_message(client_socket, "Welcome to the server", HEADER_SIZE)
         else:
-            msg = receive_message(client_socket, HEADER_SIZE)
+            msg = receive_message(notified_socket, HEADER_SIZE)
             if msg is False:
                 print("Closed connection")
-                sockets.remove(client_socket)
+                sockets_list.remove(client_socket)
                 continue
             print(msg.decode("UTF-8"))
-            print(len(read_sockets))
         for notified_socket in error_sockets:
-            sockets.remove(notified_socket)
+            sockets_list.remove(notified_socket)
